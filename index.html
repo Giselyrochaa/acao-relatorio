@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatórios Consolidados | Ações da Ouvidoria Evereste</title>
+    <!-- Carregamento do Tailwind CSS para estilização -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Carregamento do Chart.js para geração de gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        /* Configuração de fonte para Inter, conforme padrão Gemini */
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
+        /* Estilos de sombra e arredondamento padrão do Tailwind */
+        .card { @apply bg-white p-6 rounded-xl shadow-lg transition-all duration-300; }
+        /* Estilização para o dashboard centralizado */
+        .dashboard-container { @apply max-w-7xl mx-auto p-4 sm:p-6 lg:p-8; }
+        .tab-button { @apply px-6 py-3 text-sm font-medium border-b-2 transition-colors duration-200; }
+        .tab-button.active { @apply border-blue-600 text-blue-600 font-bold bg-blue-50; }
+        .tab-button:not(.active) { @apply border-transparent text-gray-500 hover:text-blue-500 hover:border-gray-300; }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard-container">
+        <!-- Título Principal -->
+        <header class="text-center mb-6">
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-blue-800">Relatórios das Ações da Ouvidoria</h1>
+            <p class="text-lg text-gray-500 mt-2">Análise Individualizada: 1ª, 2ª e 3ª Ação</p>
+        </header>
+
+        <!-- Seção de Navegação (Filtro por Ação) -->
+        <!-- Removido 'onclick' para evitar o erro de ReferenceError e configurado listeners via JavaScript module. -->
+        <div class="flex border-b border-gray-200 mb-8">
+            <button class="tab-button active" data-action-id="action3">3ª Ação (Vozes em Movimento)</button>
+            <button class="tab-button" data-action-id="action2">2ª Ação (Circuito da Escuta)</button>
+            <button class="tab-button" data-action-id="action1">1ª Ação (Escutar é Agir)</button>
+        </div>
+
+        <!-- Container do Conteúdo Dinâmico -->
+        <div id="dashboard-content">
+            
+            <h2 id="action-title" class="text-2xl font-semibold text-gray-700 mb-6">Carregando Dados...</h2>
+
+            <!-- Seção de Métricas Chave -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                
+                <div class="card text-center bg-blue-100/50 border border-blue-200">
+                    <h2 class="text-5xl font-bold text-blue-700" id="metric-participants">0</h2>
+                    <p class="text-lg text-blue-600 font-semibold mt-2">Total de Participantes (Colaboradores)</p>
+                    <span class="text-sm text-gray-500" id="metric-participants-source">Aguardando Firebase</span>
+                </div>
+
+                <div class="card text-center bg-green-100/50 border border-green-200">
+                    <h2 class="text-5xl font-bold text-green-700" id="metric-recommendation">0%</h2>
+                    <p class="text-lg text-green-600 font-semibold mt-2">Recomendam o Evento</p>
+                    <span class="text-sm text-gray-500" id="metric-recommendation-detail"></span>
+                </div>
+                
+                <div class="card text-center bg-purple-100/50 border border-purple-200">
+                    <h2 class="text-5xl font-bold text-purple-700" id="metric-manifestations">0</h2>
+                    <p class="text-lg text-purple-600 font-semibold mt-2">Manifestações Coletadas</p>
+                    <span class="text-sm text-gray-500" id="metric-manifestations-detail"></span>
+                </div>
+            </div>
+            
+            <!-- Análise Geral -->
+            <div class="card mb-10 border-t-4 border-t-blue-500">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Análise Individualizada</h2>
+                <div id="general-analysis" class="text-gray-700 leading-relaxed space-y-3">
+                    <p>Conectando ao banco de dados...</p>
+                </div>
+            </div>
+
+            <!-- Seção de Gráficos -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                
+                <!-- Gráfico 1: Nível de Satisfação Geral -->
+                <div class="card border-l-4 border-l-cyan-500">
+                    <h2 class="text-xl font-bold text-gray-800 mb-4">Gráfico 1: Nível de Satisfação Geral com o Evento</h2>
+                    <canvas id="satisfactionChart"></canvas>
+                </div>
+
+                <!-- Gráfico 2: Manifestações Coletadas nas Dinâmicas (ou Foco da Ação) -->
+                <div class="card border-l-4 border-l-indigo-500">
+                    <h2 class="text-xl font-bold text-gray-800 mb-4" id="manifestation-chart-title">Gráfico 2: Frequência das Manifestações</h2>
+                    <canvas id="manifestationChart"></canvas>
+                </div>
+                
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Importações obrigatórias do Firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, getDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // --- VARIÁVEIS DO AMBIENTE (USANDO DADOS DO USUÁRIO) ---
+        // Usamos o nome do projeto como ID, mas mantemos a estrutura mandatória.
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'acao-relatorio'; 
+        
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : '';
+        
+        // Instâncias Firebase
+        let app = null;
+        let db = null;
+        let auth = null;
+        let userId = null;
+
+        // Variáveis globais para gráficos e dados
+        let chartSatisfaction = null;
+        let chartManifestation = null;
+        let actionData = {}; // Objeto populado pelo Firestore
+        let currentAction = 'action3'; // Ação inicial
+
+        // --- DADOS PARA SEEDING (Inicialização do Banco de Dados) ---
+        const seedData = {
+            // DADOS DA 3ª AÇÃO (Vozes em Movimento)
+            action3: {
+                title: '3ª Ação da Ouvidoria – “Vozes em Movimento” (17/Out/2025)',
+                participants: 32,
+                recommendation: '100%',
+                recommendationDetail: "(32/32 respostas 'Sim')",
+                manifestations: 37,
+                manifestationsDetail: "(Elogios, Sugestões, Dúvidas e Críticas)",
+                analysis: `
+                    <p>A 3ª Ação demonstrou alto engajamento e satisfação dos 32 colaboradores. O evento alcançou <strong>100% de satisfação e recomendação</strong>. O resultado é reforçado pelo fato de que a maioria das expectativas foram "Atendidas Plenamente" (68,8%) ou "Superadas" (28,1%).</p>
+                    <p>As dinâmicas geraram <strong>37 manifestações</strong> com equilíbrio entre Elogios (13) e Sugestões (13). As principais oportunidades de melhoria giram em torno da comunicação interna, aprimoramento do sistema de ponto e melhorias na infraestrutura (cadeiras e kit de primeiros socorros). A iniciativa da Ouvidoria foi o ponto mais elogiado, solidificando seu papel como ferramenta de engajamento.</p>
+                `,
+                satisfactionData: {
+                    labels: ['Muito Satisfeito (53.1%)', 'Satisfeito (46.9%)'],
+                    counts: [17, 15],
+                    chartType: 'pie'
+                },
+                manifestationData: {
+                    title: 'Gráfico 2: Frequência das Manifestações (Dinâmicas)',
+                    labels: ['Elogios', 'Sugestões', 'Dúvidas/Ideias', 'Críticas Construtivas'],
+                    counts: [13, 13, 6, 5],
+                    chartType: 'bar'
+                }
+            },
+
+            // DADOS DA 2ª AÇÃO (Circuito da Escuta)
+            action2: {
+                title: '2ª Ação da Ouvidoria – “Circuito da Escuta” (Setembro Amarelo)',
+                participants: 27,
+                recommendation: '96.3%',
+                recommendationDetail: "(26 'Sim' / 1 'Talvez')",
+                manifestations: 23, 
+                manifestationsDetail: "(Sugestões, Dúvidas, Críticas e Elogios)",
+                analysis: `
+                    <p>A 2ª Ação, focada em escuta ativa e empatia, teve a participação de 27 colaboradores. A satisfação foi extremamente alta, com <strong>66.7% "Muito Satisfeito"</strong> e 55.6% declarando que o evento <strong>"Superou" as expectativas</strong>. A recomendação atingiu 96.3%.</p>
+                    <p>Foram coletadas <strong>23 manifestações</strong> (Elogios: 8, Sugestões: 6, Críticas: 5, Dúvidas: 4). Os elogios focaram na organização e no bem-estar promovido. As sugestões e críticas levaram a encaminhamentos importantes da gestão, como a avaliação de ajustes de temperatura e a criação de um documento sobre critérios de promoção, demonstrando a eficácia da escuta em gerar ações concretas.</p>
+                `,
+                satisfactionData: {
+                    labels: ['Muito Satisfeito (66.7%)', 'Satisfeito (33.3%)'],
+                    counts: [18, 9],
+                    chartType: 'doughnut'
+                },
+                manifestationData: {
+                    title: 'Gráfico 2: Frequência das Manifestações por Categoria',
+                    labels: ['Elogios', 'Sugestões', 'Críticas Construtivas', 'Dúvidas'],
+                    counts: [8, 6, 5, 4],
+                    chartType: 'bar'
+                }
+            },
+
+            // DADOS DA 1ª AÇÃO (Escutar é Agir)
+            action1: {
+                title: '1ª Ação da Ouvidoria – “Escutar é Agir”',
+                participants: 1, 
+                recommendation: '100%',
+                recommendationDetail: "(1/1 resposta 'Sim')",
+                manifestations: 10, 
+                manifestationsDetail: "(Baseado nos 10 Cards Éticos)",
+                analysis: `
+                    <p>A 1ª Ação, focada em Ética e Diálogo (Decisões Éticas no Cotidiano e Quiz), obteve uma única resposta na pesquisa de satisfação, indicando <strong>100% de satisfação e recomendação</strong>, com a avaliação da organização e conteúdo como "Excelente".</p>
+                    <p>A natureza do evento foi primariamente educativa e reflexiva, debatendo <strong>10 dilemas éticos</strong>. Os resultados qualitativos indicaram alta adesão e interesse genuíno em compreender o papel e o sigilo da Ouvidoria. O foco principal não foi a coleta de manifestações, mas sim o fortalecimento da confiança e do entendimento dos canais éticos.</p>
+                `,
+                satisfactionData: {
+                    labels: ['Muito Satisfeito (100%)', 'Satisfeito (0%)'],
+                    counts: [1, 0],
+                    chartType: 'pie'
+                },
+                manifestationData: {
+                    title: 'Gráfico 2: Foco da Dinâmica: Temas Éticos Debatidos',
+                    labels: ['Respeito e Ética nas Relações', 'Transparência e Responsabilidade', 'Imparcialidade e Justiça', 'Valorização das Contribuições', 'Escuta Ativa e Acolhimento'],
+                    counts: [2, 2, 2, 2, 2], // Representação simplificada de 10 cards em 5 temas
+                    chartType: 'bar'
+                }
+            }
+        };
+
+
+        /**
+         * Inicializa o Firebase, realiza autenticação e começa a ouvir os dados.
+         */
+        async function initFirebase() {
+            try {
+                if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.projectId) {
+                    console.error("Firebase Configuração Inválida. Verifique __firebase_config.");
+                    document.getElementById('action-title').textContent = "Erro de Configuração do Firebase.";
+                    return;
+                }
+
+                // 1. Inicializar App e Serviços
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // 2. Autenticação (Canvas Mandate)
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                auth.currentUser ? userId = auth.currentUser.uid : userId = crypto.randomUUID();
+
+                // 3. Checar e/ou popular dados
+                await seedInitialData();
+
+                // 4. Iniciar escuta dos dados
+                fetchData();
+
+            } catch (error) {
+                console.error("Erro ao inicializar Firebase ou Autenticar:", error);
+            }
+        }
+
+        /**
+         * Checa se os dados existem no Firestore. Se não existirem, salva o seedData.
+         */
+        async function seedInitialData() {
+            const publicPath = `/artifacts/${appId}/public/data`;
+            // Tenta buscar o relatório mais recente (action3)
+            const actionRef = doc(db, `${publicPath}/actions`, 'action3');
+
+            try {
+                const docSnap = await getDoc(actionRef);
+                
+                if (!docSnap.exists()) {
+                    console.log("Dados de relatórios não encontrados. Populando Firestore...");
+                    
+                    // Salva os três relatórios
+                    for (const actionId in seedData) {
+                        const data = seedData[actionId];
+                        await setDoc(doc(db, `${publicPath}/actions`, actionId), data);
+                    }
+                    console.log("Dados de relatórios populados com sucesso!");
+                }
+            } catch (error) {
+                console.error("Erro durante o seeding inicial:", error);
+            }
+        }
+
+        /**
+         * Realiza a escuta em tempo real dos dados de ações da Ouvidoria.
+         */
+        function fetchData() {
+            const publicPath = `/artifacts/${appId}/public/data`;
+            const q = collection(db, `${publicPath}/actions`);
+
+            onSnapshot(q, (snapshot) => {
+                const fetchedData = {};
+                let firstActionId = null;
+
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    fetchedData[doc.id] = data;
+                    if (!firstActionId) firstActionId = doc.id;
+                });
+                
+                actionData = fetchedData;
+                
+                // Se o dashboard ainda estiver no estado inicial, renderiza a primeira ação
+                if (Object.keys(actionData).length > 0) {
+                    // Tenta manter a ação atual ativa, senão usa a 3ª ação
+                    if (actionData[currentAction]) {
+                        showAction(currentAction);
+                    } else if (actionData['action3']) {
+                         showAction('action3');
+                    } else if (firstActionId) {
+                        showAction(firstActionId);
+                    }
+                } else {
+                    console.log("Nenhum dado de relatório disponível.");
+                    document.getElementById('action-title').textContent = "Nenhum dado de relatório disponível.";
+                }
+            }, (error) => {
+                console.error("Erro ao buscar dados do Firestore:", error);
+                document.getElementById('general-analysis').innerHTML = '<p class="text-red-500">Erro ao carregar dados. Verifique a conexão e as regras de segurança do Firestore.</p>';
+            });
+        }
+
+        // --- FUNÇÕES DE RENDERIZAÇÃO DA UI ---
+
+        function updateMetrics(data) {
+            document.getElementById('action-title').textContent = data.title;
+            document.getElementById('metric-participants').textContent = data.participants;
+            document.getElementById('metric-participants-source').textContent = data.participants === 1 ? "(Fonte: 1 Resposta da Pesquisa)" : "(Fonte: Pesquisa de Satisfação)";
+            document.getElementById('metric-recommendation').textContent = data.recommendation;
+            document.getElementById('metric-recommendation-detail').textContent = data.recommendationDetail;
+            document.getElementById('metric-manifestations').textContent = data.manifestations;
+            document.getElementById('metric-manifestations-detail').textContent = data.manifestationsDetail;
+            document.getElementById('general-analysis').innerHTML = data.analysis;
+        }
+
+        function createChart(chartElementId, data, chartType, chartTitle, colorScheme) {
+            const ctx = document.getElementById(chartElementId).getContext('2d');
+            
+            // Destrói a instância anterior do gráfico, se existir
+            if (chartElementId === 'satisfactionChart' && chartSatisfaction) {
+                chartSatisfaction.destroy();
+            } else if (chartElementId === 'manifestationChart' && chartManifestation) {
+                chartManifestation.destroy();
+            }
+
+            const newChart = new Chart(ctx, {
+                type: chartType,
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        label: chartTitle,
+                        data: data.counts,
+                        backgroundColor: colorScheme.background,
+                        borderColor: colorScheme.border,
+                        borderWidth: 1,
+                        ...(chartType === 'doughnut' || chartType === 'pie' ? {} : { barThickness: 40 })
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: (chartType === 'bar' || chartType === 'line') ? {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { stepSize: 1 }
+                        },
+                        x: {
+                             // Configurações para que rótulos longos fiquem visíveis no eixo X
+                        }
+                    } : { y: { display: false }, x: { display: false } },
+                    plugins: {
+                        legend: {
+                            position: chartType === 'bar' ? 'top' : 'right',
+                            display: true
+                        },
+                        title: {
+                            display: false,
+                        }
+                    }
+                }
+            });
+
+            if (chartElementId === 'satisfactionChart') {
+                chartSatisfaction = newChart;
+            } else if (chartElementId === 'manifestationChart') {
+                chartManifestation = newChart;
+            }
+        }
+        
+        function drawCharts(data) {
+            // Paleta de cores para Satisfação
+            const satisfactionColors = {
+                background: ['rgba(14, 165, 233, 0.7)', 'rgba(34, 197, 94, 0.7)'],
+                border: ['rgba(14, 165, 233, 1)', 'rgba(34, 197, 94, 1)']
+            };
+            
+            // Paleta de cores para Manifestações
+            const manifestationColors = {
+                background: ['rgba(59, 130, 246, 0.8)', 'rgba(249, 115, 22, 0.8)', 'rgba(239, 68, 68, 0.8)', 'rgba(168, 85, 247, 0.8)', 'rgba(34, 197, 94, 0.8)'],
+                border: ['rgb(59, 130, 246)', 'rgb(249, 115, 22)', 'rgb(239, 68, 68)', 'rgb(168, 85, 247)', 'rgb(34, 197, 94)']
+            };
+
+            // Atualiza o título do segundo gráfico
+            document.getElementById('manifestation-chart-title').textContent = data.manifestationData.title;
+
+            // Desenha Gráfico 1: Satisfação
+            createChart('satisfactionChart', data.satisfactionData, data.satisfactionData.chartType, 'Nível de Satisfação', satisfactionColors);
+
+            // Desenha Gráfico 2: Manifestações
+            createChart('manifestationChart', data.manifestationData, data.manifestationData.chartType, 'Contagem', manifestationColors);
+        }
+        
+        /**
+         * Configura os listeners de evento para os botões de aba (tab buttons).
+         */
+        function setupEventListeners() {
+            const tabButtons = document.querySelectorAll('.tab-button');
+            tabButtons.forEach(button => {
+                button.addEventListener('click', (event) => {
+                    const actionId = event.currentTarget.getAttribute('data-action-id');
+                    showAction(actionId);
+                });
+            });
+        }
+
+
+        // Função principal para alternar as ações
+        function showAction(actionId) {
+            currentAction = actionId; // Atualiza a ação atual
+
+            // 1. Atualiza a classe 'active' dos botões
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                if (btn.getAttribute('data-action-id') === actionId) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            // 2. Carrega os dados
+            const data = actionData[actionId];
+            if (!data) return;
+
+            // 3. Atualiza as métricas e a análise
+            updateMetrics(data);
+
+            // 4. Desenha os gráficos
+            drawCharts(data);
+        }
+
+        // Inicializa o dashboard com a 3ª Ação
+        window.onload = function() {
+            setupEventListeners(); // Configura os listeners de clique
+            initFirebase();
+        };
+
+    </script>
+
+</body>
+</html>
